@@ -1,0 +1,81 @@
+version: 0.5
+
+nodes:
+  # ユーザーからのテーマ入力
+  theme:
+    agent: textInputAgent
+    params:
+      message: "コンテンツを生成するテーマを入力してください："
+      required: true
+      
+  # プラットフォーム定義
+  platforms:
+    value:
+      - name: YouTube
+        type: video_script
+        format: script
+        maxLength: 200
+        sections: ["導入部", "本編", "まとめ"]
+      - name: Twitter
+        type: tweet_thread
+        format: short_posts
+        maxLength: 280
+        count: 5
+      - name: Blog
+        type: article
+        format: markdown
+        maxLength: 500
+        sections: ["タイトル", "導入", "本文", "結論"]
+
+  map:
+    agent: mapAgent
+    inputs:
+      rows: :platforms
+      theme: :theme.text   
+    console:
+      after: true   
+    graph:
+      nodes:
+        platformPrompt:
+          agent: stringTemplateAgent
+          inputs:
+            theme: ":theme"
+            platform: ":row.name"
+            type: ":row.type"
+            format: ":row.format"
+            maxLength: ":row.maxLength"
+          params:
+            template: "テーマ「${theme}」について、${platform}向けの${type}コンテンツを作成してください。フォーマットは${format}で、最大文字数は${maxLength}文字です。プラットフォームの特性に合わせた最適化を行い、SEOとエンゲージメントを意識した内容にしてください。出力は日本語にしてください。"
+        # コンテンツ生成
+        content:
+          agent: openAIAgent
+          inputs:
+            prompt: ":platformPrompt"
+          params:
+            model: "gpt-4o"
+            system: "あなたはプロのコンテンツクリエイターです。異なるプラットフォーム向けに最適化されたコンテンツを生成します。与えられたテーマに関して、指定されたプラットフォーム特有の形式、長さ、スタイルで高品質なコンテンツを作成してください。ハッシュタグやキーワードも適切に含めてください。"
+          isResult: true
+
+  chat:
+    agent: nestedAgent
+    inputs:
+      mapResult: :map
+    graph:    
+      loop:
+        while: :stack
+      nodes:
+        stack:
+          value: :mapResult
+          update: :pop.array
+        pop:
+          agent: popAgent
+          inputs:
+            array: :stack
+        displayResults:
+          agent: stringTemplateAgent
+          inputs:
+            content: ":pop.item.content.text"
+          params:
+            template: "${content}"
+          console:
+            after: true

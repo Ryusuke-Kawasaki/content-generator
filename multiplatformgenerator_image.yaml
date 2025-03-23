@@ -1,0 +1,97 @@
+version: 0.5
+verbose: true
+nodes:
+  # ユーザーからのテーマ入力
+  theme:
+    agent: textInputAgent
+    params:
+      message: "コンテンツを生成するテーマを入力してください："
+      required: true
+
+  # プラットフォーム定義
+  platforms:
+    value:
+      - name: YouTube
+        type: video_script
+        format: script
+        maxLength: 2000
+        sections: ["導入部", "本編", "まとめ"]
+      - name: Twitter
+        type: tweet_thread
+        format: short_posts
+        maxLength: 280
+        count: 5
+      - name: Blog
+        type: article
+        format: markdown
+        maxLength: 5000
+        sections: ["タイトル", "導入", "本文", "結論"]
+
+  # コンテンツ生成プロンプト
+  contentGeneration:
+    agent: mapAgent
+    inputs:
+      rows: ":platforms"
+    params:
+      limit: 3  # 3プラットフォーム同時処理
+    graph:
+      nodes:
+        # プラットフォーム専用プロンプト
+        platformPrompt:
+          agent: stringTemplateAgent
+          inputs:
+            theme: ":parent_theme"
+            platform: ":row.name"
+            type: ":row.type"
+            format: ":row.format"
+            maxLength: ":row.maxLength"
+          params:
+            template: "テーマ「${theme}」について、${platform}向けの${type}コンテンツを作成してください。フォーマットは${format}で、最大文字数は${maxLength}文字です。プラットフォームの特性に合わせた最適化を行い、SEOとエンゲージメントを意識した内容にしてください。"
+        
+        # コンテンツ生成
+        content:
+          agent: openAIAgent
+          inputs:
+            prompt: ":platformPrompt"
+          params:
+            model: "gpt-4o"
+            system: "あなたはプロのコンテンツクリエイターです。異なるプラットフォーム向けに最適化されたコンテンツを生成します。与えられたテーマに関して、指定されたプラットフォーム特有の形式、長さ、スタイルで高品質なコンテンツを作成してください。ハッシュタグやキーワードも適切に含めてください。"
+        
+        # タイトル生成
+        title:
+          agent: openAIAgent
+          inputs:
+            prompt: "テーマ「:parent_theme」の:row.name向けコンテンツにふさわしい、魅力的でクリック率の高いタイトルを生成してください。"
+          params:
+            model: "gpt-4o"
+            system: "あなたはタイトル作成の専門家です。与えられたテーマとプラットフォームに合わせた最適なタイトルを考案してください。"
+        
+        # イメージプロンプト生成
+        imagePrompt:
+          agent: openAIAgent
+          inputs:
+            prompt: "テーマ「:parent_theme」の:row.name向けの視覚的に魅力的なイメージを生成するためのプロンプトを作成してください。このイメージは:row.name上でユーザーの注目を集めるものである必要があります。"
+          params:
+            model: "gpt-4o"
+            system: "あなたはDALL-Eプロンプトの専門家です。視覚的に魅力的で、指定されたテーマとプラットフォームに合ったイメージを生成するための詳細なプロンプトを作成してください。"
+        
+        # 画像生成
+        image:
+          agent: openAIImageAgent
+          inputs:
+            prompt: ":imagePrompt"
+          params:
+            model: "dall-e-3"
+            size: "1024x1024"
+          
+        # 結果をフォーマット
+        result:
+          agent: stringTemplateAgent
+          inputs:
+            platform: ":row.name"
+            title: ":title.text"
+            content: ":content.text"
+            imageUrl: ":image.url"
+          params:
+            template: "## ${platform}向けコンテンツ\n\n### タイトル\n${title}\n\n### コンテンツ\n${content}\n\n### 画像\n![${platform}サムネイル](${imageUrl})\n\n---\n"
+          isResult: true
